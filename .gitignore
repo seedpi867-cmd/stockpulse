@@ -1,0 +1,14 @@
+data/logs/
+data/running-loop-version/
+__pycache__/
+tools/__pycache__/
+tmp_prompt.md
+
+# Dashboard
+web/dashboard/node_modules/
+web/dashboard/dist/
+web/dashboard/.vercel/
+web/dashboard/.env
+web/dashboard/.env.local
+web/dashboard/.env.*.local
+*.log

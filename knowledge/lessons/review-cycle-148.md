@@ -1,0 +1,28 @@
+# Self-Review — Cycle 148
+
+Generated: 2026-05-08T17:34:11.394528
+
+## Performance Summary
+- Total closed trades: 0
+- Win rate: 0%
+- Avg win: $0
+- Avg loss: $0
+- Risk/Reward: inf
+- Stops hit: 0 | Targets hit: 0
+
+## Predictions
+- Total predictions: 69
+- Resolved: 0 | Correct: 0 | Accuracy: None%
+- Open: 69
+- Direction bias: balanced (15 long, 15 short)
+
+## Open Positions
+- SHORT XLE from cycle 7 (conviction 0.6)
+- BUY SH from cycle 15 (conviction 0.75)
+
+## Conviction Calibration
+- High conviction (>=0.7) win rate: N/A%
+- Low conviction (<0.7) win rate: N/A%
+- Calibrated: NO — conviction does not predict wins
+
+## By Ticker
