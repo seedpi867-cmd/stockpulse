@@ -55,6 +55,7 @@ while true; do
     python3 "$ROOT/tools/feed-calendar.py" >> "$LOG" 2>&1 || echo "[stockpulse] feed-calendar FAILED" >> "$LOG"
     python3 "$ROOT/tools/feed-sentiment.py" >> "$LOG" 2>&1 || echo "[stockpulse] feed-sentiment FAILED" >> "$LOG"
     python3 "$ROOT/tools/feed-sectors.py" >> "$LOG" 2>&1 || echo "[stockpulse] feed-sectors FAILED" >> "$LOG"
+    python3 "$ROOT/tools/signal-engine.py" >> "$LOG" 2>&1 || echo "[stockpulse] signal-engine FAILED" >> "$LOG"
     python3 "$ROOT/tools/data-freshness.py" >> "$LOG" 2>&1 || true
     echo "[stockpulse] Feeders complete" | tee -a "$LOG"
 
@@ -231,7 +232,7 @@ while true; do
 
     # ── 9.1. WEEKLY EMAIL (Saturday only, first cycle of the day) ──
     if [ "$(date +%u)" = "6" ] && [ "$CYCLE" -gt 1 ]; then
-        LAST_WEEKLY=$(grep '"type":"weekly"' "$ROOT/data/email-sent.jsonl" 2>/dev/null | tail -1 | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('date','')[:10])" 2>/dev/null || echo "")
+        LAST_WEEKLY=$(grep '"type":"weekly"' "$ROOT/data/email-sent.jsonl" 2>/dev/null | tail -1 | python3 -c "import json,sys;print(json.loads(sys.stdin.readline()).get('date','')[:10])" 2>/dev/null || echo "")
         if [ "$LAST_WEEKLY" != "$(date +%Y-%m-%d)" ]; then
             python3 "$ROOT/tools/stockpulse-email.py" --type weekly >> "$LOG" 2>&1 || true
             echo "[stockpulse] Weekly email sent" | tee -a "$LOG"

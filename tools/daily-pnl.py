@@ -3,7 +3,7 @@ import json, os
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path("/home/pi/stockpulse")
+ROOT = Path("/home/piagent/edge-agent")
 DATA = ROOT / "data"
 SNAP_FILE = DATA / "daily-pnl.jsonl"
 

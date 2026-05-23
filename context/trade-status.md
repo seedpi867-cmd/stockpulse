@@ -1,3 +1,3 @@
 # Playbook Results — Cycle
 
-- [playbook] OK: SHORTED XLP 170.0000 @ $84.66 (stop $86.20, target $81.80)
+- [playbook] REJECTED: SHORT SOL-USD — conviction 0.6 below 0.7 minimum

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track portfolio P&L, check stops/targets for both long and short positions."""
+"""Track portfolio P&L, check stops/targets, AUTO-TRAIL winners, auto-exit stale losers."""
 import sys, json, os
 from datetime import datetime
 from pathlib import Path
@@ -53,7 +53,7 @@ def main():
 
         # P&L calculation
         if is_short:
-            unrealized = (entry - price) * shares  # profit when price drops
+            unrealized = (entry - price) * shares
         else:
             unrealized = (price - entry) * shares
 
@@ -62,19 +62,109 @@ def main():
         pos["unrealized_pnl"] = round(unrealized, 2)
         pos["unrealized_pnl_pct"] = round(unrealized_pct, 2)
 
+        # ═══════════════════════════════════════════════════
+        # AUTO-TRAILING STOPS — lock in profits automatically
+        # ═══════════════════════════════════════════════════
+        trail_pct = pos.get("trail_pct")
+
+        # AUTO-SET trail if position is profitable and no trail exists
+        if not trail_pct and unrealized_pct > 1.0:
+            # Up 1-3%: set 3% trail
+            if unrealized_pct < 3.0:
+                trail_pct = 0.03
+            # Up 3-5%: set 2% trail
+            elif unrealized_pct < 5.0:
+                trail_pct = 0.02
+            # Up 5%+: set 1.5% trail
+            else:
+                trail_pct = 0.015
+            pos["trail_pct"] = trail_pct
+            print("[portfolio-tracker] AUTO-TRAIL {}: up {:.1f}%, set {:.1f}% trail".format(
+                ticker, unrealized_pct, trail_pct * 100))
+
+        # Tighten existing trail as profit grows
+        if trail_pct and unrealized_pct > 5.0 and trail_pct > 0.015:
+            pos["trail_pct"] = 0.015
+            trail_pct = 0.015
+            print("[portfolio-tracker] TIGHTEN TRAIL {}: up {:.1f}%, trail now 1.5%".format(
+                ticker, unrealized_pct))
+        elif trail_pct and unrealized_pct > 3.0 and trail_pct > 0.02:
+            pos["trail_pct"] = 0.02
+            trail_pct = 0.02
+            print("[portfolio-tracker] TIGHTEN TRAIL {}: up {:.1f}%, trail now 2%".format(
+                ticker, unrealized_pct))
+
+        # Execute trailing stop logic
+        if trail_pct and trail_pct > 0:
+            if is_short:
+                low = pos.get("low_since_entry", entry)
+                if price < low:
+                    pos["low_since_entry"] = price
+                    low = price
+                new_stop = round(low * (1 + trail_pct), 2)
+                if pos.get("stop") and new_stop < pos["stop"]:
+                    print("[portfolio-tracker] TRAIL SHORT {}: stop {} -> {}".format(ticker, pos["stop"], new_stop))
+                    pos["stop"] = new_stop
+            else:
+                high = pos.get("high_since_entry", entry)
+                if price > high:
+                    pos["high_since_entry"] = price
+                    high = price
+                new_stop = round(high * (1 - trail_pct), 2)
+                if pos.get("stop") and new_stop > pos["stop"]:
+                    print("[portfolio-tracker] TRAIL LONG {}: stop {} -> {}".format(ticker, pos["stop"], new_stop))
+                    pos["stop"] = new_stop
+
+        # ═══════════════════════════════════════════════════
+        # AUTO-EXIT stale losers — if underwater for too many cycles
+        # ═══════════════════════════════════════════════════
+        entry_cycle = pos.get("entry_cycle", cycle)
+        cycles_held = cycle - entry_cycle
+
+        # If down >2% after 6+ cycles (30 min), auto-exit — thesis failed
+        if unrealized_pct < -2.0 and cycles_held >= 6:
+            if is_short:
+                pnl = (entry - price) * shares
+                margin = shares * entry
+                cash += margin + pnl
+                action = "COVER"
+            else:
+                pnl = (price - entry) * shares
+                cash += shares * price
+                action = "SELL"
+
+            record = {
+                "cycle": cycle, "action": action, "ticker": ticker,
+                "shares": shares, "price": price,
+                "direction": "short" if is_short else "long",
+                "conviction": pos.get("conviction", 0),
+                "reasoning": "AUTO-EXIT: down {:.1f}% after {} cycles. Thesis failed.".format(unrealized_pct, cycles_held),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(unrealized_pct, 2),
+                "entry_price": entry,
+                "timestamp": datetime.now().isoformat(),
+                "auto_close": "stale_loser"
+            }
+            with open(str(DATA / "trades.jsonl"), "a") as f:
+                f.write(json.dumps(record) + "\n")
+            closed.append(record)
+            print("[portfolio-tracker] AUTO-EXIT: {} {} at ${:.2f} — down {:.1f}% for {} cycles (P&L: ${:.2f})".format(
+                action, ticker, price, unrealized_pct, cycles_held, pnl))
+            continue
+
         # Stop loss check
         if pos.get("stop"):
             stop_hit = False
             if is_short and price >= pos["stop"]:
-                stop_hit = True  # short stop = price went UP past stop
+                stop_hit = True
             elif not is_short and price <= pos["stop"]:
-                stop_hit = True  # long stop = price went DOWN past stop
+                stop_hit = True
 
             if stop_hit:
                 if is_short:
                     pnl = (entry - pos["stop"]) * shares
                     margin = shares * entry
-                    cash += margin + pnl  # return margin + P&L
+                    cash += margin + pnl
                     action = "COVER"
                 else:
                     pnl = (pos["stop"] - entry) * shares
@@ -104,9 +194,9 @@ def main():
         if pos.get("target"):
             target_hit = False
             if is_short and price <= pos["target"]:
-                target_hit = True  # short target = price dropped to target
+                target_hit = True
             elif not is_short and price >= pos["target"]:
-                target_hit = True  # long target = price rose to target
+                target_hit = True
 
             if target_hit:
                 if is_short:
@@ -149,7 +239,6 @@ def main():
         p = get_current_price(pos["ticker"])
         if p:
             if pos.get("direction") == "short":
-                # Short: margin held + unrealized P&L
                 margin = pos["shares"] * pos["entry_price"]
                 pnl = (pos["entry_price"] - p) * pos["shares"]
                 portfolio_value += margin + pnl
@@ -195,6 +284,23 @@ def main():
     if portfolio_value < hwm:
         current_dd = round(((hwm - portfolio_value) / hwm) * 100, 2)
 
+    # Sharpe estimate (annualized from daily P&L)
+    sharpe = 0
+    pnl_file = DATA / "daily-pnl.jsonl"
+    if pnl_file.exists():
+        daily_returns = []
+        for line in pnl_file.read_text().strip().splitlines()[-30:]:
+            try:
+                d = json.loads(line)
+                v = d.get("portfolio_value", starting)
+                daily_returns.append((v - starting) / starting)
+            except: pass
+        if len(daily_returns) >= 5:
+            avg_ret = sum(daily_returns) / len(daily_returns)
+            std_ret = (sum((r - avg_ret) ** 2 for r in daily_returns) / len(daily_returns)) ** 0.5
+            if std_ret > 0:
+                sharpe = round((avg_ret / std_ret) * (252 ** 0.5), 2)
+
     performance.update({
         "total_pnl": round(total_pnl, 2),
         "total_pnl_pct": round(((portfolio_value - starting) / starting) * 100, 2),
@@ -208,6 +314,7 @@ def main():
         "worst_trade": min((t["pnl"] for t in all_closed), default=None),
         "max_drawdown": max(current_dd, performance.get("max_drawdown", 0)),
         "current_drawdown": current_dd,
+        "sharpe_estimate": sharpe,
         "streak": streak,
         "streak_type": streak_type,
         "positions_open": len(remaining),
@@ -218,10 +325,8 @@ def main():
     })
 
     save_json(DATA / "performance.json", performance)
-    print("[portfolio-tracker] Val: ${:.0f} | P&L: ${:.2f} | Pos: {} ({} short) | Closed: {}".format(
-        portfolio_value, total_pnl, len(remaining),
-        sum(1 for p in remaining if p.get("direction") == "short"),
-        len(closed)))
+    print("[portfolio-tracker] Val: ${:.0f} | P&L: ${:.2f} | WR: {:.0f}% | Pos: {} | Closed: {} | Sharpe: {:.2f}".format(
+        portfolio_value, total_pnl, win_rate, len(remaining), len(closed), sharpe))
 
 if __name__ == "__main__":
     main()

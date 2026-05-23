@@ -23,7 +23,7 @@ import json, sys, argparse
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path("/home/pi/stockpulse")
+ROOT = Path("/home/piagent/edge-agent")
 PAIRS_FILE = ROOT / "data/training-pairs/pairs.jsonl"
 EXPORT_DIR = ROOT / "data/training-pairs"
 

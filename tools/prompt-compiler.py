@@ -21,7 +21,7 @@ import json, os, sys, hashlib
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path(os.environ.get("AGENT_ROOT", "/home/pi/stockpulse"))
+ROOT = Path(os.environ.get("AGENT_ROOT", "/home/piagent/edge-agent"))
 DATA = ROOT / "data"
 CONTEXT = ROOT / "context"
 STATE = DATA / "prompt-state.json"

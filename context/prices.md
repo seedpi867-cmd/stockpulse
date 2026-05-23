@@ -1,21 +1,21 @@
-# Market Prices — 2026-05-22 18:22
+# Market Prices — 2026-05-23 12:11
+- GBP/USD: $1.34 (-0.01%) | 52w: $1.33-$1.34
+- AUD/USD: $0.71 (-0.29%) | 52w: $0.71-$0.72
 ## Commodities
-- Gold: $4523.00 (-0.37%) vol 25K | 52w: $4506.30-$4552.50
-- Crude Oil: $98.75 (+2.49%) vol 37K | 52w: $96.35-$108.66
-- Silver: $76.25 (-0.21%) vol 6K | 52w: $74.83-$77.07
+- Gold: $4510.50 (-0.65%) vol 106K | 52w: $4506.30-$4552.50
 ## Top Movers (Global)
-- UP: Nikkei 225 +2.68%
-- UP: RCL +2.53%
-- UP: Crude Oil +2.49%
-- UP: FCX +2.37%
-- UP: JETS +2.12%
-- DOWN: XLE -1.12%
-- DOWN: USO -1.20%
-- DOWN: DBA -1.29%
-- DOWN: NVDA -1.77%
-- DOWN: UVXY -4.28%
+- UP: LMT +2.00%
+- UP: HG +1.97%
+- UP: XLV +1.17%
+- UP: XLK +1.00%
+- UP: IWM +0.93%
+- DOWN: PPLT -2.13%
+- DOWN: BTC -2.77%
+- DOWN: ADA -2.82%
+- DOWN: ETH -3.22%
+- DOWN: LINK -3.70%
 ## Market Sessions
 - US: CLOSED
-- Europe: OPEN
+- Europe: CLOSED
 - Tokyo: CLOSED
 - ASX: CLOSED

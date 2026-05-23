@@ -12,6 +12,8 @@ Supported actions:
   ACTION: WATCH <ticker> <reason>
   ACTION: ADD_WATCHLIST <ticker>
   ACTION: PREDICT <direction> <ticker> <deadline> <conviction>
+  ACTION: TRAIL <ticker> <pct>       (set trailing stop, e.g. TRAIL AAPL 5 = 5% trail)
+  ACTION: MOVE_STOP <ticker> <price> (manually move stop to new price)
 """
 import json, sys, re, os
 from pathlib import Path
@@ -271,7 +273,7 @@ def parse_action_line(line, portfolio):
     rest = rest[len(parts[1]):].strip()  # everything after ticker
 
     # For SELL/COVER/WATCH/ADD_WATCHLIST — no numbers needed
-    if cmd in ("SELL", "COVER", "WATCH", "ADD_WATCHLIST"):
+    if cmd in ("SELL", "COVER", "WATCH", "ADD_WATCHLIST", "TRAIL", "MOVE_STOP"):
         return (cmd, ticker, 0, 0, 0)
 
     # For PREDICT — special format
@@ -428,6 +430,10 @@ def run(cycle_log):
         if rm:
             reasoning = rm.group(1).strip()
 
+        # Extract conviction from nearby CONVICTION: line
+        conv_match = re.search(r"CONVICTION:\s*([\d.]+)", after)
+        conviction = float(conv_match.group(1)) if conv_match else 0.6
+
         parsed = parse_action_line(line, portfolio)
         if parsed is None:
             print("[playbook] SKIP: could not parse: %s" % line[:100])
@@ -435,6 +441,12 @@ def run(cycle_log):
             continue
 
         cmd, ticker, shares, stop, target = parsed
+
+        # Conviction gate: reject low-conviction trades
+        if cmd in ("BUY", "SHORT") and conviction < 0.7:
+            print("[playbook] REJECTED: %s %s — conviction %.1f < 0.7 minimum" % (cmd, ticker, conviction))
+            results.append("[playbook] REJECTED: %s %s — conviction %.1f below 0.7 minimum" % (cmd, ticker, conviction))
+            continue
 
         if cmd == "BUY":
             ok, msg = execute_buy(ticker, shares, stop, target, portfolio, reasoning)
@@ -455,6 +467,12 @@ def run(cycle_log):
             deadline = parts[3]
             conv = float(parts[4]) if len(parts) > 4 else 0.5
             ok, msg = execute_predict(direction, pticker, deadline, conv, reasoning)
+        elif cmd == "TRAIL" and len(parts) >= 3:
+            trail_pct = float(parts[2].replace("%", ""))
+            ok, msg = execute_trail(ticker, trail_pct, portfolio, reasoning)
+        elif cmd == "MOVE_STOP" and len(parts) >= 3:
+            new_stop = float(parts[2].replace("$", ""))
+            ok, msg = execute_move_stop(ticker, new_stop, portfolio, reasoning)
         else:
             msg = "UNKNOWN: %s" % line[:80]
             ok = False
@@ -482,3 +500,30 @@ if __name__ == "__main__":
             run(log_file.read_text())
         else:
             print("[playbook] No log for cycle %d" % cycle)
+
+def execute_trail(ticker, trail_pct, portfolio, reasoning=""):
+    """Set a trailing stop percentage on an existing position."""
+    t = resolve(ticker)
+    for p in portfolio.get("positions", []):
+        if p["ticker"] == t:
+            p["trail_pct"] = trail_pct / 100.0  # store as decimal
+            price = get_price(t) or p.get("current_price") or p["entry_price"]
+            # Initialize high/low water marks
+            if p.get("direction") == "short":
+                p.setdefault("low_since_entry", min(price, p["entry_price"]))
+            else:
+                p.setdefault("high_since_entry", max(price, p["entry_price"]))
+            save_json(DATA / "portfolio.json", portfolio)
+            return True, "TRAIL SET: %s trailing stop at %.1f%%" % (t, trail_pct)
+    return False, "No position in %s" % t
+
+def execute_move_stop(ticker, new_stop, portfolio, reasoning=""):
+    """Manually move the stop on an existing position."""
+    t = resolve(ticker)
+    for p in portfolio.get("positions", []):
+        if p["ticker"] == t:
+            old_stop = p.get("stop")
+            p["stop"] = new_stop
+            save_json(DATA / "portfolio.json", portfolio)
+            return True, "STOP MOVED: %s from $%.2f to $%.2f" % (t, old_stop or 0, new_stop)
+    return False, "No position in %s" % t

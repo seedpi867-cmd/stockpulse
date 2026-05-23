@@ -25,12 +25,12 @@ from pathlib import Path
 # ---------- CONFIG ----------
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "seedpi867@gmail.com"
-SMTP_PASS = "pedkovtpxsgsojdg"
+SMTP_USER = os.environ.get("SMTP_USER", "seedpi867@gmail.com")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
 FROM_NAME = "StockPulse"
-TO_EMAIL = "your-email@example.com"
+TO_EMAIL = "leighmcmillan20@gmail.com"
 
-BASE_DIR = Path("/home/pi/stockpulse")
+BASE_DIR = Path("/home/piagent/edge-agent")
 DATA_DIR = BASE_DIR / "data"
 
 MAX_EMAILS_PER_DAY = 10

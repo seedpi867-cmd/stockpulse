@@ -1,0 +1,61 @@
+{
+  "preferred_setups": [
+    "Support bounce with volume confirmation",
+    "Breakout from consolidation with catalyst",
+    "Mean reversion after RSI < 30 or > 70",
+    "Sector rotation momentum (into strength)",
+    "Crypto weekend momentum (BTC leading)",
+    "Correlation divergence snap-back"
+  ],
+  "avoid_setups": [
+    "Trading without clear catalyst",
+    "Conviction below 0.7",
+    "Same ticker traded within last 5 cycles",
+    "Buying into resistance without breakout",
+    "Counter-trend without extreme RSI"
+  ],
+  "position_sizing_note": "8-12% per position. Max 2% portfolio risk per trade (distance to stop).",
+  "sector_focus": [],
+  "sector_avoid": [],
+  "holding_period_target": "Minimum 3 cycles (15 min). Target 1-3 days for swings, 4-24 hours for crypto.",
+  "lessons_count": 162,
+  "last_review_cycle": 3399,
+  "overall_rating": "REBUILDING — 36% win rate unacceptable, targeting 65%+",
+  "conviction_calibration": "Minimum 0.7 to enter. Below = no trade.",
+  "risk_reward_target": 2.0,
+  "win_rate_target": 65,
+  "win_rate_minimum": 55,
+  "win_rate_current_rolling_20": "CALCULATE EACH CYCLE",
+  "max_loss_per_trade_pct": 2.0,
+  "drawdown_circuit_breaker": 95000,
+  "weekend_crypto_mandate": true,
+  "cross_market_rotation": true,
+  "anti_churn_cooldown_cycles": 20,
+  "min_hold_cycles": 3,
+  "evolved_rules": [
+    "CUT LOSERS FAST: If down >1.5% after 2 cycles, EXIT. No exceptions.",
+    "LET WINNERS RUN: Trail all profitable positions. Never sell early out of fear.",
+    "STOP CHURNING: Do not trade same ticker within 5 cycles unless previous trade was profitable.",
+    "WEEKEND = CRYPTO: Friday close to Monday open, deploy 30-50% of cash into crypto.",
+    "CROSS-MARKET: Crypto profits fund Monday equities. Equity profits fund Friday crypto.",
+    "CATALYST REQUIRED: No catalyst = no trade. Name the news event driving the move.",
+    "KNOWLEDGE EDGE: Every trade must reference at least one knowledge file concept.",
+    "2% RISK RULE: Max loss on any trade = 2% of portfolio value. Size position accordingly.",
+    "TRAILING STOPS MANDATORY: Up 1% = set 3% trail. Up 3% = tighten to 2%. Up 5% = tighten to 1.5%."
+  ],
+  "hypotheses": [
+    "RSI extremes mean-revert within 3-5 days",
+    "Sector rotation is detectable before price confirms",
+    "Fed language matters more than action",
+    "Volume divergence precedes reversals",
+    "News sentiment extremes are contrarian signals",
+    "BTC weekend pumps predict Monday equity risk-on",
+    "Crypto-equity correlation breaks down on weekends — exploit it",
+    "High conviction trades (>0.8) win 2x more than low conviction (<0.6)"
+  ],
+  "active_experiments": [
+    "Weekend crypto deployment: measure weekend P&L separately",
+    "Conviction threshold: only trade >=0.7, track if win rate improves",
+    "Anti-churn: ban ticker for 20 cycles after zero-P&L round trip"
+  ]
+}

@@ -36,7 +36,7 @@ The agent uses ACTION: commands that the playbook executes:
   ACTION: PREDICT long|short ticker deadline conviction
 
 ## Owner
-Configure your timezone in config.sh
+The Big Dog. Adelaide, Australia (ACST UTC+9:30).
 
 ## Rules
 - No dark mode on dashboard

@@ -1,21 +1,20 @@
-# Market Sentiment — 2026-05-22 18:23 EST
+# Market Sentiment — 2026-05-23 12:12 EST
 
 ## Fear & Greed Index
-- Score: 58/100 (greed)
+- Score: 59/100 (greed)
 - **NEUTRAL**
 ## VIX (Fear Index)
-- VIX: 16.80 (+0.24%)
-- **NORMAL**
+- VIX: unavailable
 ## Put/Call Ratio (SPY nearest expiry)
-- Equity P/C: 1.04
+- Equity P/C: 1.26
 - **BEARISH POSITIONING** — more puts than calls, contrarian bullish
 ## Treasury Yields
-- 3M Treasury: 3.582%
-- 5Y Treasury: 4.257%
-- 10Y Treasury: 4.586%
-- 30Y Treasury: 5.112%
-- 10Y-3M Spread: 1.004% (normal)
-- 10Y-5Y Spread: 0.329%
+- 3M Treasury: 3.585%
+- 5Y Treasury: 4.256%
+- 10Y Treasury: 4.558%
+- 30Y Treasury: 5.064%
+- 10Y-3M Spread: 0.973% (normal)
+- 10Y-5Y Spread: 0.302%
 ## US Dollar Index
-- DXY: 99.26
+- DXY: 99.32
 - **WEAK DOLLAR** — tailwind for commodities and gold

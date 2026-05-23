@@ -61,7 +61,7 @@ def main():
     mood = load_json(DATA / "mood.json")
     strategy = load_json(DATA / "strategy.json")
 
-    trades = load_jsonl(DATA / "trades.jsonl", 30)
+    trades = load_jsonl(DATA / "trades.jsonl", 100)
     predictions = load_jsonl(DATA / "predictions.jsonl", 20)
 
     inner_voice_raw = load_text(DATA / "inner-voice.md", 50)

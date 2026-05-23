@@ -29,7 +29,7 @@ import json, os, sys, re
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path(os.environ.get("AGENT_ROOT", "/home/pi/stockpulse"))
+ROOT = Path(os.environ.get("AGENT_ROOT", "/home/piagent/edge-agent"))
 DATA = ROOT / "data"
 PAIRS_DIR = DATA / "training-pairs"
 PAIRS_FILE = PAIRS_DIR / "pairs.jsonl"

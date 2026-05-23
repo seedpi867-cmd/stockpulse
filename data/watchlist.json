@@ -1,1 +1,20 @@
-[]
+{
+  "tickers": [
+    "SPY", "QQQ", "DIA", "IWM",
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META",
+    "XLK", "XLF", "XLE", "XLV", "XLI", "XLP", "XLU", "XLRE", "XLC", "XLB", "XLY",
+    "SH", "SQQQ", "UVXY",
+    "TLT", "GLD", "USO",
+    "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "ADA-USD",
+    "EWJ", "GDX", "SLV"
+  ],
+  "added_by_agent": [
+    "EWJ", "GDX", "USO", "SLV", "HG=F", "CPER", "PPLT",
+    "LMT", "RTX", "NOC", "JETS", "CCL", "RCL", "DBA",
+    "INDA", "FCX", "XLY", "IYT"
+  ],
+  "crypto": [
+    "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "ADA-USD"
+  ],
+  "note": "Agent can add any ticker. Crypto tickers trade 24/7 including weekends. Feed-prices reads this."
+}

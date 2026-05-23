@@ -95,6 +95,10 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path == "/api/all":
             data = load_json(OUTPUT / "dashboard-data.json", {})
+            # Always serve fresh trades/portfolio/performance from source files
+            data["trades"] = load_jsonl(DATA / "trades.jsonl", 100)[::-1]
+            data["portfolio"] = load_json(DATA / "portfolio.json", data.get("portfolio", {}))
+            data["performance"] = load_json(DATA / "performance.json", data.get("performance", {}))
             self.send_json(data)
             return
 
@@ -162,7 +166,23 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if path == "/api/portfolio":
-            self.send_json(load_json(DATA / "portfolio.json"))
+            port = load_json(DATA / "portfolio.json")
+            cache = load_json(DATA / "price_cache.json")
+            for pos in port.get("positions", []):
+                ticker = pos.get("ticker", "")
+                if ticker in cache:
+                    price = cache[ticker].get("price")
+                    if price:
+                        entry = pos.get("entry_price", 0)
+                        shares = pos.get("shares", 0)
+                        is_short = pos.get("direction") == "short"
+                        pos["current_price"] = price
+                        if is_short:
+                            pos["unrealized_pnl"] = round((entry - price) * shares, 2)
+                        else:
+                            pos["unrealized_pnl"] = round((price - entry) * shares, 2)
+                        pos["unrealized_pnl_pct"] = round((pos["unrealized_pnl"] / (entry * shares)) * 100, 2) if entry and shares else 0
+            self.send_json(port)
             return
 
         if path == "/api/trades":
@@ -203,6 +223,21 @@ class Handler(SimpleHTTPRequestHandler):
                 for lf in sorted(lessons_dir.glob("review-cycle-*.md"), reverse=True)[:5]:
                     lessons.append({"file": lf.name, "content": lf.read_text()[:1000]})
             self.send_json(lessons)
+            return
+
+        if path == "/api/knowledge":
+            knowledge_dir = ROOT / "knowledge"
+            result = {}
+            if knowledge_dir.exists():
+                for cat_dir in sorted(knowledge_dir.iterdir()):
+                    if cat_dir.is_dir():
+                        files = []
+                        for f in sorted(cat_dir.glob("*.md")):
+                            content = f.read_text()
+                            files.append({"name": f.stem, "content": content[:2000], "size": len(content)})
+                        if files:
+                            result[cat_dir.name] = files
+            self.send_json(result)
             return
 
         # === JOURNAL API ===

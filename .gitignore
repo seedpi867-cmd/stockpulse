@@ -1,8 +1,28 @@
+# Runtime data (not source code)
+data/*.json
+data/*.jsonl
+data/*.md
+data/*.txt
 data/logs/
 data/running-loop-version/
+data/journal/
+data/training-pairs/
+
+# Keep config files
+!data/strategy.json
+!data/watchlist.json
+
+# Auto-generated context
+context/signals.md
+
+# Python
 __pycache__/
-tools/__pycache__/
+*.pyc
+
+# Temp
 tmp_prompt.md
+tmp_raw_output.txt
+output/
 
 # Dashboard
 web/dashboard/node_modules/
@@ -11,4 +31,14 @@ web/dashboard/.vercel/
 web/dashboard/.env
 web/dashboard/.env.local
 web/dashboard/.env.*.local
+
+# Backups
+*.backup-*
+*.bak-*
+
+# Logs
 *.log
+
+# Env
+.env
+.env.*

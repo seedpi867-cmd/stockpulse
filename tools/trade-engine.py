@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Parse LLM output for trade intents — BUY, SELL, SHORT, COVER — validate and execute."""
+"""Parse LLM output for trade intents — BUY, SELL, SHORT, COVER — validate and execute.
+   Enforces anti-churn, conviction minimums, risk limits, and weekend crypto mandate."""
 
 # Ticker aliases — map common names to Yahoo Finance symbols
 TICKER_ALIASES = {
     "BTC": "BTC-USD", "BITCOIN": "BTC-USD",
     "ETH": "ETH-USD", "ETHEREUM": "ETH-USD",
+    "SOL": "SOL-USD", "SOLANA": "SOL-USD",
+    "DOGE": "DOGE-USD", "DOGECOIN": "DOGE-USD",
+    "AVAX": "AVAX-USD", "AVALANCHE": "AVAX-USD",
+    "LINK": "LINK-USD", "CHAINLINK": "LINK-USD",
+    "ADA": "ADA-USD", "CARDANO": "ADA-USD",
     "GOLD": "GC=F", "OIL": "CL=F", "CRUDE": "CL=F",
     "SILVER": "SI=F",
     "EURUSD": "EURUSD=X", "USDJPY": "USDJPY=X",
@@ -13,10 +19,15 @@ TICKER_ALIASES = {
     "DAX": "^GDAXI", "ASX": "^AXJO", "HANGSENG": "^HSI",
 }
 
+CRYPTO_TICKERS = {"BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "ADA-USD"}
+
 def resolve_ticker(ticker):
     """Resolve ticker aliases to canonical Yahoo Finance symbols."""
     t = ticker.upper().strip()
     return TICKER_ALIASES.get(t, t)
+
+def is_crypto(ticker):
+    return ticker in CRYPTO_TICKERS or ticker.endswith("-USD")
 
 import sys, json, re, os
 from datetime import datetime
@@ -45,7 +56,6 @@ def load_config():
             if "=" in line and not line.startswith("#"):
                 key, _, val = line.partition("=")
                 val = val.strip().strip('"').strip("'")
-                # Strip inline comments
                 if "#" in val:
                     val = val[:val.index("#")].strip()
                 config[key.strip()] = val
@@ -59,11 +69,56 @@ def get_current_price(ticker):
             return data[ticker]["price"]
     return None
 
-def parse_trades(cycle_log):
-    """Parse TRADE blocks from LLM output. Supports BUY, SELL, SHORT, COVER."""
+def load_recent_trades(limit=30):
+    """Load recent trades to check for churning."""
+    trades_file = DATA / "trades.jsonl"
+    if not trades_file.exists():
+        return []
+    lines = trades_file.read_text().strip().splitlines()
     trades = []
-    # Match: TRADE: BUY/SELL/SHORT/COVER TICKER SHARES shares @ PRICE
-    # Shares may be fractional (e.g. 0.01 BTC). Ticker may include hyphen (BTC-USD).
+    for line in lines[-limit:]:
+        try:
+            trades.append(json.loads(line))
+        except:
+            pass
+    return trades
+
+def check_churn(ticker, cycle, recent_trades, cooldown=5):
+    """Check if ticker was traded recently (anti-churn rule).
+    Returns (is_churning, reason) tuple."""
+    for t in reversed(recent_trades):
+        t_cycle = t.get("cycle", 0)
+        if t["ticker"] == ticker and (cycle - t_cycle) < cooldown:
+            pnl = t.get("pnl", 0) or 0
+            if pnl <= 0:
+                return True, "Anti-churn: {} traded {} cycles ago with P&L ${:.0f}. Wait {} cycles.".format(
+                    ticker, cycle - t_cycle, pnl, cooldown - (cycle - t_cycle))
+    return False, ""
+
+def check_consecutive_losses(ticker, recent_trades, max_consecutive=2, ban_cycles=50):
+    """Check if ticker has consecutive losses (ban rule)."""
+    ticker_trades = [t for t in recent_trades if t["ticker"] == ticker and t.get("pnl") is not None]
+    if len(ticker_trades) < max_consecutive:
+        return False, ""
+    last_n = ticker_trades[-max_consecutive:]
+    if all(t.get("pnl", 0) < 0 for t in last_n):
+        return True, "Banned: {} has {} consecutive losses. No trading for {} cycles.".format(
+            ticker, max_consecutive, ban_cycles)
+    return False, ""
+
+def check_zero_win_rate(ticker, recent_trades, min_trades=3):
+    """Check if ticker has 0% win rate after enough trades."""
+    ticker_trades = [t for t in recent_trades if t["ticker"] == ticker and t.get("pnl") is not None]
+    if len(ticker_trades) < min_trades:
+        return False, ""
+    wins = sum(1 for t in ticker_trades if t.get("pnl", 0) > 0)
+    if wins == 0:
+        return True, "0% win rate on {} after {} trades. Banned.".format(ticker, len(ticker_trades))
+    return False, ""
+
+def parse_trades(cycle_log):
+    """Parse TRADE blocks from LLM output."""
+    trades = []
     pattern = r'TRADE:\s*(BUY|SELL|SHORT|COVER)\s+([\w\-^=]+)\s+(\d+(?:\.\d+)?)\s+shares?\s*@?\s*\$?([\d.]+)?'
     for match in re.finditer(pattern, cycle_log, re.IGNORECASE):
         action = match.group(1).upper()
@@ -96,7 +151,7 @@ def parse_trades(cycle_log):
                 try: target = float(re.search(r'[\d.]+', line.split(":")[1]).group())
                 except: pass
             elif line.startswith("REASONING:"):
-                reasoning = line.split(":", 1)[1].strip()[:150]
+                reasoning = line.split(":", 1)[1].strip()[:200]
             elif line.startswith("TIMEFRAME:"):
                 timeframe = line.split(":", 1)[1].strip()
 
@@ -117,10 +172,6 @@ def validate_trade(trade, portfolio, config, cycle):
     """Validate trade against risk rules. Returns (ok, reason)."""
     ticker = trade["ticker"]
     action = trade["action"]
-    watchlist = [t.strip() for t in config.get("WATCHLIST", "").split(",")]
-
-    # Watchlist check removed — agent can trade anything
-    # return False, "Ticker {} not in watchlist".format(ticker)
 
     price = trade["price"] or get_current_price(ticker)
     if price is None:
@@ -129,8 +180,8 @@ def validate_trade(trade, portfolio, config, cycle):
 
     positions = portfolio.get("positions", [])
     cash = portfolio.get("cash", 0)
-    max_pos = int(config.get("MAX_POSITIONS", 5))
-    max_pct = float(config.get("MAX_POSITION_PCT", 10))
+    max_pos = int(config.get("MAX_POSITIONS", 8))
+    max_pct = float(config.get("MAX_POSITION_PCT", 12))
 
     # Calculate portfolio value
     portfolio_value = cash
@@ -138,46 +189,84 @@ def validate_trade(trade, portfolio, config, cycle):
         cp = get_current_price(p["ticker"])
         if cp:
             if p.get("direction") == "short":
-                portfolio_value += p["shares"] * p["entry_price"]  # margin held
+                portfolio_value += p["shares"] * p["entry_price"]
             else:
                 portfolio_value += p["shares"] * cp
     if portfolio_value <= 0:
         portfolio_value = cash
 
-    if action == "BUY":
+    # Load recent trades for churn/ban checks
+    recent_trades = load_recent_trades(50)
+
+    if action in ("BUY", "SHORT"):
+        # === CONVICTION CHECK (minimum 0.7) ===
+        if trade["conviction"] < 0.7:
+            return False, "Conviction {:.1f} < 0.7 minimum. Need higher conviction.".format(trade["conviction"])
+
+        # === ANTI-CHURN CHECK ===
+        is_churning, churn_reason = check_churn(ticker, cycle, recent_trades, cooldown=5)
+        if is_churning:
+            return False, churn_reason
+
+        # === CONSECUTIVE LOSS BAN ===
+        is_banned, ban_reason = check_consecutive_losses(ticker, recent_trades)
+        if is_banned:
+            return False, ban_reason
+
+        # === ZERO WIN RATE BAN ===
+        is_zero, zero_reason = check_zero_win_rate(ticker, recent_trades)
+        if is_zero:
+            return False, zero_reason
+
+        # === POSITION LIMIT ===
         if len(positions) >= max_pos:
             return False, "Max positions ({})".format(max_pos)
-        trade_amount = trade["shares"] * price
-        max_amount = portfolio_value * (max_pct / 100.0)
-        if trade_amount > max_amount:
-            return False, "Size ${:.0f} > {}% limit ${:.0f}".format(trade_amount, max_pct, max_amount)
-        if trade_amount > cash:
-            return False, "Need ${:.0f}, have ${:.0f}".format(trade_amount, cash)
-        if trade["stop"] is None:
-            return False, "Stop loss required"
+
+        # === DUPLICATE POSITION ===
         for p in positions:
             if p["ticker"] == ticker:
                 return False, "Already holding {}".format(ticker)
 
-    elif action == "SHORT":
-        if len(positions) >= max_pos:
-            return False, "Max positions ({})".format(max_pos)
-        # Short selling: margin requirement = position value
-        margin = trade["shares"] * price
-        max_amount = portfolio_value * (max_pct / 100.0)
-        if margin > max_amount:
-            return False, "Short size ${:.0f} > {}% limit ${:.0f}".format(margin, max_pct, max_amount)
-        if margin > cash:
-            return False, "Margin ${:.0f} > cash ${:.0f}".format(margin, cash)
+        # === STOP REQUIRED ===
         if trade["stop"] is None:
-            return False, "Stop loss required for shorts"
-        # Stop must be ABOVE entry for shorts
-        if trade["stop"] <= price:
-            # Auto-fix: agent might have set stop wrong direction
-            pass  # Allow it, the agent should learn
-        for p in positions:
-            if p["ticker"] == ticker:
-                return False, "Already positioned in {}".format(ticker)
+            return False, "Stop loss required"
+
+        # === POSITION SIZE LIMIT ===
+        trade_amount = trade["shares"] * price
+        max_amount = portfolio_value * (max_pct / 100.0)
+        if trade_amount > max_amount:
+            return False, "Size ${:.0f} > {}% limit ${:.0f}".format(trade_amount, max_pct, max_amount)
+
+        # === 2% MAX RISK PER TRADE ===
+        if action == "BUY":
+            risk_per_share = abs(price - trade["stop"])
+        else:  # SHORT
+            risk_per_share = abs(trade["stop"] - price)
+        total_risk = risk_per_share * trade["shares"]
+        max_risk = portfolio_value * 0.02
+        if total_risk > max_risk:
+            return False, "Risk ${:.0f} > 2% limit ${:.0f}. Reduce shares or tighten stop.".format(total_risk, max_risk)
+
+        # === CASH CHECK ===
+        if action == "BUY" and trade_amount > cash:
+            return False, "Need ${:.0f}, have ${:.0f}".format(trade_amount, cash)
+        if action == "SHORT":
+            margin = trade["shares"] * price
+            if margin > cash:
+                return False, "Margin ${:.0f} > cash ${:.0f}".format(margin, cash)
+
+        # === REWARD/RISK CHECK ===
+        if trade["target"] is not None:
+            if action == "BUY":
+                reward = trade["target"] - price
+                risk = price - trade["stop"]
+            else:
+                reward = price - trade["target"]
+                risk = trade["stop"] - price
+            if risk > 0:
+                rr = reward / risk
+                if rr < 1.5:
+                    return False, "R/R ratio {:.1f} < 1.5 minimum. Widen target or tighten stop.".format(rr)
 
     elif action == "SELL":
         held = None
@@ -227,9 +316,8 @@ def execute_trade(trade, portfolio, cycle):
         })
 
     elif trade["action"] == "SHORT":
-        # Short: we receive cash from selling borrowed shares, but hold margin
         margin = shares * price
-        portfolio["cash"] -= margin  # margin held
+        portfolio["cash"] -= margin
         portfolio["positions"].append({
             "ticker": ticker,
             "shares": shares,
@@ -259,9 +347,7 @@ def execute_trade(trade, portfolio, cycle):
         for i, p in enumerate(portfolio["positions"]):
             if p["ticker"] == ticker and p.get("direction") == "short":
                 entry = p["entry_price"]
-                # Short P&L: profit when price drops (entry - cover price)
                 pnl = (entry - price) * shares
-                # Return margin + P&L
                 margin = shares * entry
                 portfolio["cash"] += margin + pnl
                 trade["pnl"] = round(pnl, 2)
@@ -285,7 +371,8 @@ def execute_trade(trade, portfolio, cycle):
         "timeframe": trade.get("timeframe", ""),
         "timestamp": now,
         "pnl": trade.get("pnl"),
-        "pnl_pct": trade.get("pnl_pct")
+        "pnl_pct": trade.get("pnl_pct"),
+        "is_crypto": is_crypto(ticker)
     }
     with open(str(DATA / "trades.jsonl"), "a") as f:
         f.write(json.dumps(record) + "\n")
@@ -364,6 +451,8 @@ def main():
                 record["action"], record["ticker"], record["shares"], record["price"])
             if record.get("pnl") is not None:
                 msg += " (P&L: ${:.2f})".format(record["pnl"])
+            if record.get("is_crypto"):
+                msg += " [CRYPTO]"
             status_lines.append(msg)
             print("[trade-engine] {}".format(msg))
         else:
