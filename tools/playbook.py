@@ -23,6 +23,15 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 CONTEXT = ROOT / "context"
 
+# ═══════════════════════════════════════════════════
+# ANTI-CHURN CONSTANTS
+# ═══════════════════════════════════════════════════
+MIN_HOLD_CYCLES = 4         # Must hold position at least 4 cycles (~20 min) before manual exit
+CHURN_COOLDOWN_CYCLES = 8   # Can't re-enter a ticker within 8 cycles of exiting it
+MAX_TRADES_PER_CYCLE = 2    # Max 2 trades per cycle — stop rapid rotation
+LOSS_STREAK_THRESHOLD = 3   # After 3 consecutive losses, reduce sizing
+LOSS_STREAK_MAX_PCT = 0.05  # 5% max position size during loss streak
+
 TICKER_ALIASES = {
     "BTC": "BTC-USD", "BITCOIN": "BTC-USD",
     "ETH": "ETH-USD", "ETHEREUM": "ETH-USD",
@@ -51,7 +60,95 @@ def get_price(ticker):
         return cache[t].get("price")
     return None
 
-def execute_buy(ticker, shares, stop, target, portfolio, reasoning=""):
+def get_current_cycle():
+    try: return int((DATA / "cycle.txt").read_text().strip())
+    except: return 0
+
+def get_recent_exits(ticker, lookback=10):
+    """Get recent SELL/COVER trades on this ticker."""
+    trades_file = DATA / "trades.jsonl"
+    if not trades_file.exists():
+        return []
+    exits = []
+    for line in trades_file.read_text().strip().splitlines()[-50:]:
+        try:
+            t = json.loads(line)
+            if t.get("ticker") == ticker and t.get("action") in ("SELL", "COVER"):
+                exits.append(t)
+        except: pass
+    return exits[-lookback:]
+
+def check_churn_cooldown(ticker):
+    """Returns True if ticker is in churn cooldown (recently exited)."""
+    cycle = get_current_cycle()
+    exits = get_recent_exits(ticker)
+    if exits:
+        last_exit = exits[-1]
+        exit_cycle = last_exit.get("cycle", 0)
+        if cycle - exit_cycle < CHURN_COOLDOWN_CYCLES:
+            return True, "CHURN BLOCKED: %s exited %d cycles ago (cooldown: %d)" % (
+                ticker, cycle - exit_cycle, CHURN_COOLDOWN_CYCLES)
+    return False, ""
+
+def check_min_hold(ticker, portfolio):
+    """Returns True if position hasn't been held long enough."""
+    cycle = get_current_cycle()
+    for p in portfolio.get("positions", []):
+        if p["ticker"] == ticker:
+            entry_cycle = p.get("entry_cycle", cycle)
+            held = cycle - entry_cycle
+            if held < MIN_HOLD_CYCLES:
+                return True, "HOLD ENFORCED: %s held %d cycles (min: %d)" % (
+                    ticker, held, MIN_HOLD_CYCLES)
+    return False, ""
+
+def get_loss_streak():
+    """Count consecutive losses from most recent trades."""
+    trades_file = DATA / "trades.jsonl"
+    if not trades_file.exists():
+        return 0
+    streak = 0
+    for line in reversed(trades_file.read_text().strip().splitlines()):
+        try:
+            t = json.loads(line)
+            if t.get("pnl") is not None and t.get("action") in ("SELL", "COVER"):
+                if t["pnl"] <= 0:
+                    streak += 1
+                else:
+                    break
+        except: pass
+    return streak
+
+def enforce_loss_streak_sizing(shares, price, portfolio):
+    """Reduce position size during loss streaks."""
+    streak = get_loss_streak()
+    if streak >= LOSS_STREAK_THRESHOLD:
+        cash = portfolio.get("cash", 0)
+        max_cost = cash * LOSS_STREAK_MAX_PCT
+        max_shares = int(max_cost / price) if price > 0 else shares
+        if shares > max_shares and max_shares > 0:
+            print("[playbook] LOSS STREAK %d: sizing reduced %d -> %d shares (5%% max)" % (streak, int(shares), max_shares))
+            return max_shares
+    return shares
+
+def count_trades_this_cycle():
+    """Count how many trades were executed this cycle."""
+    cycle = get_current_cycle()
+    trades_file = DATA / "trades.jsonl"
+    if not trades_file.exists():
+        return 0
+    count = 0
+    for line in reversed(trades_file.read_text().strip().splitlines()):
+        try:
+            t = json.loads(line)
+            if t.get("cycle") == cycle and t.get("action") in ("BUY", "SHORT", "SELL", "COVER"):
+                count += 1
+            elif t.get("cycle", 0) < cycle:
+                break
+        except: pass
+    return count
+
+def execute_buy(ticker, shares, stop, target, portfolio, reasoning="", conviction=0.6):
     t = resolve(ticker)
     price = get_price(t)
     if not price:
@@ -104,7 +201,7 @@ def execute_buy(ticker, shares, stop, target, portfolio, reasoning=""):
         "entry_time": datetime.now().isoformat(),
         "stop": stop,
         "target": target,
-        "conviction": 0.6,
+        "conviction": conviction,
         "reasoning": reasoning[:300],
         "current_price": price,
         "unrealized_pnl": 0,
@@ -142,7 +239,7 @@ def execute_sell(ticker, portfolio, reasoning=""):
             return True, "SOLD %s %.4f @ $%.2f (P&L $%.2f)" % (t, p["shares"], price, pnl)
     return False, "No long position in %s" % t
 
-def execute_short(ticker, shares, stop, target, portfolio, reasoning=""):
+def execute_short(ticker, shares, stop, target, portfolio, reasoning="", conviction=0.6):
     t = resolve(ticker)
     price = get_price(t)
     if not price:
@@ -188,7 +285,7 @@ def execute_short(ticker, shares, stop, target, portfolio, reasoning=""):
         "ticker": t, "shares": shares, "entry_price": price, "direction": "short",
         "entry_cycle": int((DATA / "cycle.txt").read_text().strip()),
         "entry_time": datetime.now().isoformat(),
-        "stop": stop, "target": target, "conviction": 0.6, "reasoning": reasoning[:300],
+        "stop": stop, "target": target, "conviction": conviction, "reasoning": reasoning[:300],
         "current_price": price, "unrealized_pnl": 0, "unrealized_pnl_pct": 0,
     })
 
@@ -442,18 +539,48 @@ def run(cycle_log):
 
         cmd, ticker, shares, stop, target = parsed
 
-        # Conviction gate: reject low-conviction trades
+        # ═══ TRADE RATE LIMIT ═══
+        if cmd in ("BUY", "SHORT", "SELL", "COVER"):
+            trades_this_cycle = count_trades_this_cycle()
+            if trades_this_cycle >= MAX_TRADES_PER_CYCLE:
+                print("[playbook] RATE LIMIT: %d trades this cycle (max %d)" % (trades_this_cycle, MAX_TRADES_PER_CYCLE))
+                results.append("[playbook] RATE LIMIT: max %d trades per cycle reached" % MAX_TRADES_PER_CYCLE)
+                continue
+
+        # ═══ CONVICTION GATE ═══
         if cmd in ("BUY", "SHORT") and conviction < 0.7:
             print("[playbook] REJECTED: %s %s — conviction %.1f < 0.7 minimum" % (cmd, ticker, conviction))
             results.append("[playbook] REJECTED: %s %s — conviction %.1f below 0.7 minimum" % (cmd, ticker, conviction))
             continue
 
+        # ═══ ANTI-CHURN: cooldown on re-entry ═══
+        if cmd in ("BUY", "SHORT"):
+            churned, churn_msg = check_churn_cooldown(resolve(ticker))
+            if churned:
+                print("[playbook] %s" % churn_msg)
+                results.append("[playbook] %s" % churn_msg)
+                continue
+
+        # ═══ ANTI-CHURN: minimum hold time for exits ═══
+        if cmd in ("SELL", "COVER"):
+            held_too_short, hold_msg = check_min_hold(resolve(ticker), portfolio)
+            if held_too_short:
+                print("[playbook] %s" % hold_msg)
+                results.append("[playbook] %s" % hold_msg)
+                continue
+
+        # ═══ LOSS STREAK SIZING ═══
+        if cmd in ("BUY", "SHORT") and shares > 0:
+            price_check = get_price(resolve(ticker))
+            if price_check:
+                shares = enforce_loss_streak_sizing(shares, price_check, portfolio)
+
         if cmd == "BUY":
-            ok, msg = execute_buy(ticker, shares, stop, target, portfolio, reasoning)
+            ok, msg = execute_buy(ticker, shares, stop, target, portfolio, reasoning, conviction)
         elif cmd == "SELL":
             ok, msg = execute_sell(ticker, portfolio, reasoning)
         elif cmd == "SHORT":
-            ok, msg = execute_short(ticker, shares, stop, target, portfolio, reasoning)
+            ok, msg = execute_short(ticker, shares, stop, target, portfolio, reasoning, conviction)
         elif cmd == "COVER":
             ok, msg = execute_cover(ticker, portfolio, reasoning)
         elif cmd == "WATCH":
